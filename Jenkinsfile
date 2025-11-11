@@ -25,26 +25,6 @@ pipeline {
             }
         }
 
-        stage('Test Code Quality') {
-            steps {
-                sh '''
-                    # Install Node.js in Jenkins container
-                    curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-                    apt-get update && apt-get install -y nodejs
-
-                    # Install dependencies
-                    npm ci
-
-                    # Run tests
-                    npm test || echo "Tests completed with issues"
-
-                    # Basic lint check
-                    npm install -g eslint
-                    eslint . || echo "Linting completed with issues"
-                '''
-            }
-        }
-
         stage('Deploy to AWS EC2') {
             steps {
                 script {
@@ -63,22 +43,22 @@ pipeline {
                             ssh -o StrictHostKeyChecking=no ec2-user@${DEPLOY_HOST} "
                                 cd /tmp/cicd-build
 
-                                # Login to ECR
-                                aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                                echo '📦 Installing dependencies and running tests...'
+                                npm ci
+                                npm test
 
-                                # Build Docker image
+                                echo '🔨 Building Docker image...'
+                                aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
                                 docker build -t ${DOCKER_IMAGE_NAME} .
                                 docker tag ${DOCKER_IMAGE_NAME} ${ECR_REGISTRY}/${ECR_REPO_NAME}:latest
 
-                                # Push to ECR
+                                echo '📤 Pushing to ECR...'
                                 docker push ${DOCKER_IMAGE_NAME}
                                 docker push ${ECR_REGISTRY}/${ECR_REPO_NAME}:latest
 
-                                # Stop existing container
+                                echo '🚀 Deploying application...'
                                 docker stop cicd-app || true
                                 docker rm cicd-app || true
-
-                                # Run new container
                                 docker run -d \\
                                     --name cicd-app \\
                                     -p 3000:3000 \\
@@ -86,7 +66,8 @@ pipeline {
                                     -e NODE_ENV=production \\
                                     ${DOCKER_IMAGE_NAME}
 
-                                echo 'Deployment completed successfully!'
+                                echo '✅ Deployment completed successfully!'
+                                docker ps | grep cicd-app
                             "
 
                             # Store deployment info
@@ -101,7 +82,7 @@ pipeline {
         stage('Health Check') {
             steps {
                 sh """
-                    echo 'Waiting for application to start...'
+                    echo '⏳ Waiting for application to start...'
                     sleep 30
 
                     # Check if application is responding
@@ -109,12 +90,15 @@ pipeline {
                     attempt=1
 
                     while [ \$attempt -le \$max_attempts ]; do
-                        if curl -f http://${DEPLOY_HOST}:3000/health > /dev/null 2>&1; then
+                        echo "🔍 Health check attempt \$attempt..."
+                        if curl -f http://${DEPLOY_HOST}:3000/health; then
                             echo '✅ Health check passed!'
-                            curl http://${DEPLOY_HOST}:3000/health
+                            echo ''
+                            echo '🎉 APPLICATION IS LIVE!'
+                            echo "📍 URL: http://${DEPLOY_HOST}:3000"
                             break
                         else
-                            echo "Health check attempt \$attempt failed, retrying in 10 seconds..."
+                            echo "❌ Health check failed, retrying in 10 seconds..."
                             sleep 10
                             attempt=\$((attempt + 1))
                         fi
@@ -139,13 +123,18 @@ pipeline {
             echo """
                 ✅✅✅ PIPELINE SUCCESSFUL! ✅✅✅
 
-                🚀 Application deployed successfully!
+                🚀🚀🚀 APPLICATION DEPLOYED SUCCESSFULLY! 🚀🚀🚀
 
-                📍 Application URL: http://${DEPLOY_HOST}:3000
-                🔍 Health Check: http://${DEPLOY_HOST}:3000/health
-                📊 API Endpoint: http://${DEPLOY_HOST}:3000/api
+                📍 Main URL: http://${DEPLOY_HOST}:3000
+                🔍 Health: http://${DEPLOY_HOST}:3000/health
+                📊 API: http://${DEPLOY_HOST}:3000/api
+                👥 Users API: http://${DEPLOY_HOST}:3000/api/users
 
-                📸 Don't forget to capture screenshots for your submission!
+                📸 SCREENSHOTS NEEDED FOR SUBMISSION:
+                1. Jenkins pipeline stages (this page)
+                2. ECR repository: https://console.aws.amazon.com/ecr/
+                3. Running app: http://${DEPLOY_HOST}:3000
+                4. Jenkinsfile: https://github.com/SriHarshitha88/devops_lab_cia/blob/main/Jenkinsfile
             """
         }
 
@@ -153,12 +142,11 @@ pipeline {
             echo """
                 ❌❌❌ PIPELINE FAILED! ❌❌❌
 
-                Please check the console output above for error details.
-                Common issues:
-                - SSH credentials not configured correctly
-                - AWS credentials missing or invalid
-                - EC2 instance not accessible
-                - Docker not running on EC2
+                Troubleshooting tips:
+                1. Check SSH credentials in Jenkins
+                2. Verify EC2 instance is running
+                3. Ensure AWS credentials are correct
+                4. Check if Docker is running on EC2
             """
         }
     }
