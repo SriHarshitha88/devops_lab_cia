@@ -9,7 +9,7 @@ pipeline {
         AWS_CREDENTIALS_ID = 'aws-credentials'
         DOCKER_IMAGE_NAME = "${ECR_REGISTRY}/${ECR_REPO_NAME}:${IMAGE_TAG}"
         DEPLOY_HOST = 'ec2-15-206-159-55.ap-south-1.compute.amazonaws.com'
-        DEPLOY_CREDENTIALS = credentials('aws-ssh-credentials')
+        DEPLOY_CREDENTIALS = 'aws-ssh-credentials'
     }
 
     stages {
@@ -21,26 +21,21 @@ pipeline {
                         credentialsId: 'github-credentials'
                 }
                 sh 'git rev-parse HEAD > GIT_COMMIT'
-                sh 'echo "Build Number: ${BUILD_NUMBER}" > BUILD_INFO'
+                sh "echo 'Build Number: ${BUILD_NUMBER}' > BUILD_INFO"
                 sh 'echo "Git Commit: $(cat GIT_COMMIT)" >> BUILD_INFO'
                 sh 'echo "Build Time: $(date)" >> BUILD_INFO'
             }
         }
 
-        stage('Setup Environment') {
-            steps {
-                sh '''
-                    echo "Setting up environment..."
-                    node --version
-                    npm --version
-                    docker --version
-                '''
-            }
-        }
-
         stage('Install Dependencies') {
             steps {
-                sh 'npm ci'
+                script {
+                    docker.image('node:18-alpine').inside {
+                        sh '''
+                            npm ci
+                        '''
+                    }
+                }
             }
         }
 
@@ -48,13 +43,23 @@ pipeline {
             parallel {
                 stage('Lint') {
                     steps {
-                        sh 'npm install -g eslint'
-                        sh 'eslint . || true' // Continue even if linting fails
+                        script {
+                            docker.image('node:18-alpine').inside {
+                                sh '''
+                                    npm install -g eslint
+                                    eslint . || true
+                                '''
+                            }
+                        }
                     }
                 }
                 stage('Security Scan') {
                     steps {
-                        sh 'npm audit --audit-level high || true'
+                        script {
+                            docker.image('node:18-alpine').inside {
+                                sh 'npm audit --audit-level high || true'
+                            }
+                        }
                     }
                 }
             }
@@ -62,35 +67,13 @@ pipeline {
 
         stage('Test') {
             steps {
-                sh '''
-                    # Create test file if not exists
-                    if [ ! -f tests/api.test.js ]; then
-                        mkdir -p tests
-                        cat > tests/api.test.js << 'EOF'
-const request = require('supertest');
-const app = require('../server');
-
-describe('API Endpoints', () => {
-  test('GET /api should return welcome message', async () => {
-    const response = await request(app)
-      .get('/api')
-      .expect(200);
-
-    expect(response.body.message).toContain('Welcome');
-  });
-
-  test('GET /health should return OK status', async () => {
-    const response = await request(app)
-      .get('/health')
-      .expect(200);
-
-    expect(response.body.status).toBe('OK');
-  });
-});
-EOF
-                    fi
-                    npm test
-                '''
+                script {
+                    docker.image('node:18-alpine').inside {
+                        sh '''
+                            npm test
+                        '''
+                    }
+                }
             }
         }
 
@@ -128,13 +111,13 @@ EOF
         stage('Deploy to AWS') {
             steps {
                 script {
-                    sshagent(["${DEPLOY_CREDENTIALS_ID}"]) {
+                    sshagent(["${DEPLOY_CREDENTIALS}"]) {
                         sh """
                             # Copy deployment script to remote
-                            scp -o StrictHostKeyChecking=no deploy.sh ${DEPLOY_HOST}:/tmp/
+                            scp -o StrictHostKeyChecking=no deploy.sh ec2-user@${DEPLOY_HOST}:/tmp/
 
                             # Execute deployment on remote host
-                            ssh -o StrictHostKeyChecking=no ${DEPLOY_HOST} "
+                            ssh -o StrictHostKeyChecking=no ec2-user@${DEPLOY_HOST} "
                                 chmod +x /tmp/deploy.sh
                                 sudo /tmp/deploy.sh '${DOCKER_IMAGE_NAME}' '${AWS_REGION}'
                             "
@@ -189,13 +172,12 @@ EOF
                         <p>The CI/CD pipeline completed successfully.</p>
                         <ul>
                             <li>Build Number: ${BUILD_NUMBER}</li>
-                            <li>Git Commit: ${env.GIT_COMMIT?.take(8)}</li>
                             <li>Docker Image: ${DOCKER_IMAGE_NAME}</li>
                             <li>Deployed to: ${DEPLOY_HOST}:3000</li>
                         </ul>
                         <p>Application URL: http://${DEPLOY_HOST}:3000</p>
                     """,
-                    to: "${env.CHANGE_AUTHOR_EMAIL ?: 'devops@example.com'}"
+                    to: "devops@example.com"
                 )
             }
         }
@@ -207,14 +189,13 @@ EOF
                     subject: "❌ FAILED: ${JOB_NAME} - Build #${BUILD_NUMBER}",
                     body: """
                         <h2>Build Failed!</h2>
-                        <p>The CI/CD pipeline failed at stage ${currentBuild.currentResult}.</p>
+                        <p>The CI/CD pipeline failed.</p>
                         <ul>
                             <li>Build Number: ${BUILD_NUMBER}</li>
-                            <li>Failed Stage: ${currentBuild.currentResult}</li>
                             <li>Check console output for details</li>
                         </ul>
                     """,
-                    to: "${env.CHANGE_AUTHOR_EMAIL ?: 'devops@example.com'}"
+                    to: "devops@example.com"
                 )
             }
         }
