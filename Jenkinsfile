@@ -9,7 +9,6 @@ pipeline {
         AWS_CREDENTIALS_ID = 'aws-credentials'
         DOCKER_IMAGE_NAME = "${ECR_REGISTRY}/${ECR_REPO_NAME}:${IMAGE_TAG}"
         DEPLOY_HOST = 'ec2-15-206-159-55.ap-south-1.compute.amazonaws.com'
-        DEPLOY_CREDENTIALS = 'aws-ssh-credentials'
     }
 
     stages {
@@ -27,54 +26,57 @@ pipeline {
 
         stage('Deploy to AWS EC2') {
             steps {
-                script {
-                    sshagent(["${DEPLOY_CREDENTIALS}"]) {
-                        sh """
-                            # Create build directory on EC2
-                            ssh -o StrictHostKeyChecking=no ec2-user@${DEPLOY_HOST} '
-                                rm -rf /tmp/cicd-build
-                                mkdir -p /tmp/cicd-build
-                            '
+                withCredentials([sshUserPrivateKey(
+                    credentialsId: 'aws-ssh-credentials',
+                    keyFileVariable: 'SSH_KEY',
+                    usernameVariable: 'SSH_USER'
+                )]) {
+                    sh """
+                        # Create SSH command with key
+                        SSH_CMD="ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${DEPLOY_HOST}"
+                        SCP_CMD="scp -o StrictHostKeyChecking=no -i ${SSH_KEY} -r"
 
-                            # Copy all files to EC2
-                            scp -o StrictHostKeyChecking=no -r * ec2-user@${DEPLOY_HOST}:/tmp/cicd-build/
+                        # Create build directory on EC2
+                        ${SSH_CMD} 'rm -rf /tmp/cicd-build && mkdir -p /tmp/cicd-build'
 
-                            # Build and deploy on EC2
-                            ssh -o StrictHostKeyChecking=no ec2-user@${DEPLOY_HOST} "
-                                cd /tmp/cicd-build
+                        # Copy all files to EC2
+                        ${SCP_CMD} * ${SSH_USER}@${DEPLOY_HOST}:/tmp/cicd-build/
 
-                                echo '📦 Installing dependencies and running tests...'
-                                npm ci
-                                npm test
+                        # Build and deploy on EC2
+                        ${SSH_CMD} "
+                            cd /tmp/cicd-build
 
-                                echo '🔨 Building Docker image...'
-                                aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-                                docker build -t ${DOCKER_IMAGE_NAME} .
-                                docker tag ${DOCKER_IMAGE_NAME} ${ECR_REGISTRY}/${ECR_REPO_NAME}:latest
+                            echo '📦 Installing dependencies and running tests...'
+                            npm ci
+                            npm test
 
-                                echo '📤 Pushing to ECR...'
-                                docker push ${DOCKER_IMAGE_NAME}
-                                docker push ${ECR_REGISTRY}/${ECR_REPO_NAME}:latest
+                            echo '🔨 Building Docker image...'
+                            aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                            docker build -t ${DOCKER_IMAGE_NAME} .
+                            docker tag ${DOCKER_IMAGE_NAME} ${ECR_REGISTRY}/${ECR_REPO_NAME}:latest
 
-                                echo '🚀 Deploying application...'
-                                docker stop cicd-app || true
-                                docker rm cicd-app || true
-                                docker run -d \\
-                                    --name cicd-app \\
-                                    -p 3000:3000 \\
-                                    --restart unless-stopped \\
-                                    -e NODE_ENV=production \\
-                                    ${DOCKER_IMAGE_NAME}
+                            echo '📤 Pushing to ECR...'
+                            docker push ${DOCKER_IMAGE_NAME}
+                            docker push ${ECR_REGISTRY}/${ECR_REPO_NAME}:latest
 
-                                echo '✅ Deployment completed successfully!'
-                                docker ps | grep cicd-app
-                            "
+                            echo '🚀 Deploying application...'
+                            docker stop cicd-app || true
+                            docker rm cicd-app || true
+                            docker run -d \\
+                                --name cicd-app \\
+                                -p 3000:3000 \\
+                                --restart unless-stopped \\
+                                -e NODE_ENV=production \\
+                                ${DOCKER_IMAGE_NAME}
 
-                            # Store deployment info
-                            echo "${DOCKER_IMAGE_NAME}" > IMAGE_INFO
-                            echo "${ECR_REGISTRY}/${ECR_REPO_NAME}:latest" >> IMAGE_INFO
-                        """
-                    }
+                            echo '✅ Deployment completed successfully!'
+                            docker ps | grep cicd-app
+                        "
+
+                        # Store deployment info
+                        echo "${DOCKER_IMAGE_NAME}" > IMAGE_INFO
+                        echo "${ECR_REGISTRY}/${ECR_REPO_NAME}:latest" >> IMAGE_INFO
+                    """
                 }
             }
         }
@@ -142,11 +144,12 @@ pipeline {
             echo """
                 ❌❌❌ PIPELINE FAILED! ❌❌❌
 
-                Troubleshooting tips:
-                1. Check SSH credentials in Jenkins
-                2. Verify EC2 instance is running
-                3. Ensure AWS credentials are correct
-                4. Check if Docker is running on EC2
+                Missing Plugin: Install 'SSH Agent Plugin' in Jenkins
+                Or check:
+                1. SSH credentials configured in Jenkins
+                2. EC2 instance is running
+                3. AWS credentials are correct
+                4. Docker is running on EC2
             """
         }
     }
