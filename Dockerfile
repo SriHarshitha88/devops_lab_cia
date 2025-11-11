@@ -7,8 +7,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install dependencies (tolerate missing package-lock)
+RUN npm install --omit=dev
 
 # Copy application code
 COPY . .
@@ -28,6 +28,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 
 # Copy application code
 COPY --from=builder --chown=nextjs:nodejs /app .
+
+# Install curl for HEALTHCHECK
+RUN apk add --no-cache curl
 
 # Switch to non-root user
 USER nextjs
