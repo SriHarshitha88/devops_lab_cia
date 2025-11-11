@@ -29,9 +29,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 # Copy application code
 COPY --from=builder --chown=nextjs:nodejs /app .
 
-# Install curl for HEALTHCHECK
-RUN apk add --no-cache curl
-
 # Switch to non-root user
 USER nextjs
 
@@ -40,7 +37,7 @@ EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/health || exit 1
+  CMD wget -q -O /dev/null http://localhost:3000/health || exit 1
 
 # Start the application
 CMD ["npm", "start"]

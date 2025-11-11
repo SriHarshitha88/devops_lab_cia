@@ -6,7 +6,7 @@
         ECR_REGISTRY = '987626324970.dkr.ecr.ap-south-1.amazonaws.com'
         ECR_REPO_NAME = 'aws-cicd-webapp'
         IMAGE_TAG = "${BUILD_NUMBER}"
-        DEPLOY_HOST = 'ec2-15-206-159-55.ap-south-1.compute.amazonaws.com'
+        DEPLOY_HOST = '15.206.159.55'
     }
 
     stages {
@@ -127,7 +127,21 @@
                         set -e
                         : ${SSH_USER:=ec2-user}
                         echo "🧰 Checking tooling on EC2: ${DEPLOY_HOST} (user: ${SSH_USER})"
-                        ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ${SSH_USER}@${DEPLOY_HOST} "docker --version || echo 'Docker missing'; aws --version || echo 'AWS CLI missing'"
+                        attempts=0
+                        until ssh -i "$SSH_KEY" \
+                                  -o StrictHostKeyChecking=no \
+                                  -o ConnectTimeout=15 \
+                                  -o ServerAliveInterval=30 \
+                                  ${SSH_USER}@${DEPLOY_HOST} \
+                                  "docker --version || echo 'Docker missing'; aws --version || echo 'AWS CLI missing'"; do
+                          attempts=$((attempts+1))
+                          if [ "$attempts" -ge 6 ]; then
+                            echo "❌ EC2 not reachable via SSH after $attempts attempts" >&2
+                            exit 1
+                          fi
+                          echo "⏳ SSH not ready, retrying in 10s... (attempt $attempts)"
+                          sleep 10
+                        done
                     '''
                 }
             }
@@ -140,7 +154,7 @@
                         set -e
                         : ${SSH_USER:=ec2-user}
                         echo "🚀 Deploying to EC2: ${DEPLOY_HOST} (user: ${SSH_USER})"
-                        ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ${SSH_USER}@${DEPLOY_HOST} \
+                        ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=30 ${SSH_USER}@${DEPLOY_HOST} \
                           "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY} && \
                            docker pull ${ECR_REGISTRY}/${ECR_REPO_NAME}:${IMAGE_TAG} && \
                            docker stop cicd-app || true && \
