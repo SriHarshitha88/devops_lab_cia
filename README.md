@@ -2,243 +2,224 @@
 
 This project demonstrates a complete CI/CD pipeline for automated deployment of a Node.js web application on AWS using Jenkins, Docker, and GitHub.
 
-## 🏗️ Architecture
+## 🏗️ Architecture Diagram
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   GitHub    │────▶│   Jenkins   │────▶│  AWS ECR    │────▶│  AWS EC2    │
-│ Repository  │     │   Pipeline  │     │  Registry   │     │   Instance  │
-└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
-                            │                     │                     │
-                            ▼                     ▼                     ▼
-                       ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-                       │ Unit Tests  │     │ Docker     │     │ CloudWatch  │
-                       │ & Quality   │     │ Build      │     │ Monitoring  │
-                       └─────────────┘     └─────────────┘     └─────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           DEVELOPER WORKFLOW                                    │
+└─────────────────────────┬───────────────────────────────────────────────────┘
+                          │
+                          │ Git Push (code changes)
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              GITHUB                                            │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   │
+│  │   server.js │    │package.json │    │ Dockerfile  │    │Jenkinsfile  │   │
+│  │             │    │             │    │             │    │             │   │
+│  │             │    │             │    │             │    │             │   │
+│  └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘   │
+│           │                  │                  │                  │          │
+│           └──────────────────┴──────────────────┴──────────────────┘          │
+│                           │                                                     │
+│                           │ Webhook Trigger                                     │
+└───────────────────────────┼─────────────────────────────────────────────────────┘
+                            ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                            JENKINS SERVER                                       │
+│                                                                                 │
+│  ┌────────────────────── CI/CD PIPELINE STAGES ──────────────────────┐         │
+│  │                                                                  │         │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐         │         │
+│  │  │ Checkout │→ │Build/Test│→ │Docker    │→ │Push ECR  │         │         │
+│  │  │          │  │          │  │Build     │  │          │         │         │
+│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘         │         │
+│  │                                                            │   │         │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐               ▼   │         │
+│  │  │Deploy    │→ │Health    │→ │Notify    │          ┌─────────┐  │         │
+│  │  │to EC2    │  │Check     │  │Success   │          │Artifacts│  │         │
+│  │  │          │  │          │  │          │          │Archive  │  │         │
+│  │  └──────────┘  └──────────┘  └──────────┘          └─────────┘  │         │
+│  └──────────────────────────────────────────────────────────────────┘         │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                            │
+                            │ SSH Deployment
+                            ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                          AWS CLOUD INFRASTRUCTURE                                │
+│                                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────┐           │
+│  │                         AMAZON EC2                              │           │
+│  │  ┌───────────────────────────────────────────────────────┐    │           │
+│  │  │              Docker Container                           │    │           │
+│  │  │  ┌─────────────────────────────────────────────┐      │    │           │
+│  │  │  │         Node.js Web Application              │      │    │           │
+│  │  │  │  ┌─────────┐  ┌─────────┐  ┌─────────────┐  │      │    │           │
+│  │  │  │  │ Server  │  │ Express │  │ Health Check│  │      │    │           │
+│  │  │  │    .js   │  │         │  │  Endpoint   │  │      │    │           │
+│  │  │  └─────────┘  └─────────┘  └─────────────┘  │      │    │           │
+│  │  └───────────────────────────────────────────────────────┘    │           │
+│  │                              │ Port 3000                     │           │
+│  └──────────────────────────────┼───────────────────────────────┘           │
+│                                 │                                      │
+│  ┌──────────────────────────────┼───────────────────────────────┐           │
+│  │         AWS CLOUD SERVICES    │           MONITORING           │           │
+│  │                              │                              │           │
+│  │  ┌─────────────┐             │  ┌─────────────┐              │           │
+│  │  │     ECR     │◄────────────┘  │CloudWatch   │              │           │
+│  │  │(Container   │   Docker      │             │              │           │
+│  │  │ Registry)   │   Images     │ • Metrics   │              │           │
+│  │  │             │              │ • Logs      │              │           │
+│  │  └─────────────┘              │ • Alarms    │              │           │
+│  │                                └─────────────┘              │           │
+│  └───────────────────────────────────────────────────────────────┘           │
+│                                                                                 │
+│                                 │                                              │
+│                                 ▼                                              │
+│  ┌─────────────────────────────────────────────────────────────────┐           │
+│  │                      INTERNET ACCESS                             │           │
+│  │                                                                 │           │
+│  │  https://ec2-15-206-159-55.ap-south-1.compute.amazonaws.com    │           │
+│  │      │                                                         │           │
+│  │      ├─ / (Application UI)                                     │           │
+│  │      ├─ /api (REST API)                                        │           │
+│  │      ├─ /api/users (Users Endpoint)                             │           │
+│  │      └─ /health (Health Check)                                 │           │
+│  └─────────────────────────────────────────────────────────────────┘           │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 📋 Prerequisites
+## 📋 Expected Outcomes
 
-### What You Need to Set Up:
+### 1. **Source Code Management** ✅
+- Use Git and GitHub for version control
+- Clear branching strategy (main branch)
+- Webhook integration triggers Jenkins automatically on code commits
 
-#### 1. **AWS Account**
-- Create an AWS account if you don't have one
-- Configure AWS CLI with your credentials:
-  ```bash
-  aws configure
-  ```
+### 2. **Continuous Integration (CI)** ✅
+- Jenkins configured to:
+  - Pull latest code from repository
+  - Build the project using npm
+  - Run unit tests
+  - Create Docker image
 
-#### 2. **AWS CLI and Tools**
-- Install AWS CLI v2
-- Install jq (JSON processor)
-- Install Git
+### 3. **Containerization** ✅
+- Dockerfile created to containerize the application
+- Docker image built and tagged during CI process
+- Multi-stage build for optimization
 
-#### 3. **Jenkins Server**
-- Set up Jenkins server (can be on EC2 or on-premises)
-- Required Jenkins plugins:
-  - AWS Steps Plugin
-  - Docker Pipeline Plugin
-  - GitHub Integration Plugin
-  - Email Extension Plugin
+### 4. **Container Registry** ✅
+- Push to AWS Elastic Container Registry (ECR)
+- Image versioning with build numbers
+- Latest tag always updated
 
-#### 4. **GitHub Setup**
-- Fork this repository to your GitHub account
-- Set up GitHub Personal Access Token with repo permissions
-- Add webhook to Jenkins (Jenkins URL + `/github-webhook/`)
+### 5. **Continuous Deployment (CD)** ✅
+- Deploy containerized application to AWS EC2
+- Automatic deployment after ECR push
+- Zero-downtime deployment strategy
 
-## 🚀 Setup Instructions
+### 6. **Monitoring & Logging** ✅
+- CloudWatch integration for:
+  - Application metrics
+  - Container logs
+  - Health check endpoints
+  - Email notifications for pipeline status
 
-### Step 1: Set Up AWS Infrastructure
+## 🚀 Quick Start
 
+### Prerequisites
+- AWS account with IAM permissions
+- Jenkins server with required plugins
+- Docker installed
+- GitHub repository with webhook
+
+### Installation Steps
+
+1. **Clone the repository**
 ```bash
-# Make the setup script executable
-chmod +x aws/setup-infrastructure.sh
-
-# Run the infrastructure setup
-./aws/setup-infrastructure.sh us-east-1
+git clone https://github.com/SriHarshitha88/devops_lab_cia.git
+cd devops_lab_cia
 ```
 
-This will create:
-- ECR repository for Docker images
-- IAM role for EC2 with necessary permissions
-- Security group with required ports (22, 80, 3000)
-- EC2 instance with Docker pre-installed
+2. **Set up Jenkins pipeline**
+- Create new pipeline job
+- Configure GitHub webhook
+- Add credentials (GitHub, AWS, SSH)
 
-### Step 2: Configure Jenkins
+3. **Configure AWS infrastructure**
+- Create ECR repository
+- Launch EC2 instance with Docker
+- Set up security groups
 
-1. **Add Credentials in Jenkins**:
-   - AWS credentials: `aws-credentials`
-   - ECR registry URL: `aws-ecr-registry-url`
-   - SSH credentials for EC2: `aws-ssh-credentials`
-   - GitHub credentials: `github-credentials`
+4. **Run the pipeline**
+- Push changes to GitHub
+- Pipeline triggers automatically
+- Application deployed to EC2
 
-2. **Create Jenkins Pipeline Job**:
-   - New Item → Pipeline
-   - Select "Pipeline script from SCM"
-   - SCM: Git
-   - Repository URL: `https://github.com/SriHarshitha88/devops_lab_cia.git`
-   - Credentials: Select GitHub credentials
-   - Script Path: `Jenkinsfile`
+## 📦 Technology Stack
 
-### Step 3: Update Jenkinsfile Configuration
-
-Update the following environment variables in `Jenkinsfile`:
-- `AWS_REGION`: Your AWS region
-- `ECR_REGISTRY`: Your ECR registry URL
-- `DEPLOY_HOST`: Your EC2 instance public IP
-
-### Step 4: Configure Webhook
-
-1. Go to your GitHub repository settings
-2. Webhooks → Add webhook
-3. Payload URL: `http://your-jenkins-server:8080/github-webhook/`
-4. Content type: `application/json`
-5. Events: Select "Just the `push` event"
-
-## 📦 Deployment Process
-
-The pipeline automatically triggers on every push to the main branch:
-
-1. **Checkout**: Pulls latest code from GitHub
-2. **Setup**: Prepares build environment
-3. **Install Dependencies**: Installs npm packages
-4. **Quality Checks**: Runs linting and security scans
-5. **Test**: Executes unit tests
-6. **Build Docker**: Creates container image
-7. **Push to ECR**: Uploads image to AWS registry
-8. **Deploy**: Deploys to EC2 instance
-9. **Health Check**: Verifies application is running
-
-## 🔧 Manual Commands
-
-### Build and Run Locally
-```bash
-# Install dependencies
-npm install
-
-# Run tests
-npm test
-
-# Build Docker image
-docker build -t aws-cicd-webapp .
-
-# Run container
-docker run -p 3000:3000 aws-cicd-webapp
-```
-
-### Deploy Manually
-```bash
-# Push to ECR
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin your-ecr-registry-url
-docker tag aws-cicd-webapp:latest your-ecr-registry-url/aws-cicd-webapp:latest
-docker push your-ecr-registry-url/aws-cicd-webapp:latest
-
-# SSH into EC2
-ssh -i cicd-key-pair.pem ec2-user@your-ec2-ip
-
-# Deploy on EC2
-sudo ./deploy.sh your-ecr-registry-url/aws-cicd-webapp:latest us-east-1
-```
-
-## 📊 Monitoring
-
-### CloudWatch Metrics
-- CPU Utilization
-- Memory Usage
-- Network I/O
-- Disk Usage
-
-### CloudWatch Logs
-- Application logs: `/aws/docker/cicd-app`
-- Deployment logs: `/aws/ec2/cicd-app`
-
-### Health Checks
-- Application health endpoint: `http://<ec2-ip>:3000/health`
-
-## 🧪 Testing
-
-```bash
-# Run all tests
-npm test
-
-# Run tests with coverage
-npm run test:coverage
-
-# Run linting
-npm run lint
-```
+- **Version Control**: GitHub
+- **CI/CD**: Jenkins
+- **Containerization**: Docker
+- **Cloud Platform**: AWS
+  - EC2 (Compute)
+  - ECR (Container Registry)
+  - CloudWatch (Monitoring)
+- **Application**: Node.js + Express
 
 ## 📸 Submission Screenshots
 
-Here's what you need to capture for submission:
+For your assignment submission, you need screenshots of:
 
-### 1. Jenkins Pipeline Stages
-- View in Jenkins UI after pipeline runs
-- Show all stages (Checkout, Test, Build, Deploy, etc.)
+1. **Jenkins Pipeline Stages**
+   - All stages executing successfully
+   - Console output showing completion
 
-### 2. Docker Image in ECR
-- AWS Console → ECR → Repository
-- Show image tags and push details
+2. **Docker Image in ECR**
+   - Navigate to AWS Console → ECR
+   - Show `aws-cicd-webapp` repository
+   - Display image tags and push details
 
-### 3. Application Running on Cloud
-- Open `http://<ec2-ip>:3000` in browser
-- Capture the application interface
+3. **Application Running on Cloud**
+   - Visit: http://ec2-15-206-159-55.ap-south-1.compute.amazonaws.com:3000
+   - Screenshot the application interface
+   - Show health check endpoint
 
-### 4. Jenkinsfile
-- Show the complete pipeline configuration
-- Display in IDE or GitHub
+4. **Jenkinsfile**
+   - View in GitHub repository
+   - Shows complete pipeline configuration
 
-### 5. CloudWatch Dashboard
-- Show metrics and logs
-- Display monitoring data
-
-## 🔐 Security Considerations
-
-- Never commit AWS credentials to version control
-- Use IAM roles instead of access keys when possible
-- Rotate keys regularly
-- Enable VPC flow logs
-- Use security groups to restrict access
-
-## 🛠️ Troubleshooting
-
-### Common Issues:
-
-1. **Docker build fails**:
-   - Check Dockerfile syntax
-   - Verify .dockerignore is correct
-
-2. **ECR push fails**:
-   - Verify AWS credentials
-   - Check ECR repository permissions
-   - Ensure Docker login succeeded
-
-3. **Deployment fails**:
-   - Check SSH connectivity to EC2
-   - Verify Docker is running on EC2
-   - Check deploy.sh permissions
-
-4. **Health check fails**:
-   - Verify application is listening on port 3000
-   - Check security group settings
-   - Review application logs
-
-## 📝 Configuration Files
+## 🔧 Configuration Files
 
 - `Jenkinsfile`: CI/CD pipeline definition
 - `Dockerfile`: Container image specification
-- `deploy.sh`: Remote deployment script
-- `aws/setup-infrastructure.sh`: AWS resource creation
 - `package.json`: Node.js dependencies and scripts
+- `server.js`: Main application file
+- `tests/`: Unit test files
+- `deploy.sh`: Deployment script for EC2
 
-## 📞 Support
+## 🌐 Application Endpoints
 
-For issues:
-1. Check Jenkins console output
-2. Review CloudWatch logs
-3. Verify AWS resource configuration
-4. Test locally first
+Once deployed, the application is available at:
+
+- **Main Application**: http://ec2-15-206-159-55.ap-south-1.compute.amazonaws.com:3000
+- **Health Check**: http://ec2-15-206-159-55.ap-south-1.compute.amazonaws.com:3000/health
+- **API Endpoint**: http://ec2-15-206-159-55.ap-south-1.compute.amazonaws.com:3000/api
+- **Users API**: http://ec2-15-206-159-55.ap-south-1.compute.amazonaws.com:3000/api/users
+
+## 📊 Pipeline Flow Summary
+
+1. **Developer** pushes code to **GitHub**
+2. **Webhook** triggers **Jenkins** pipeline
+3. **Jenkins**:
+   - Checks out code
+   - Runs tests
+   - Builds Docker image
+   - Pushes to **ECR**
+4. **EC2** pulls image from **ECR**
+5. **Docker** runs container on **EC2**
+6. **CloudWatch** monitors application
+7. **User** accesses application via public URL
 
 ---
 
-**Happy Deploying! 🎉**
+**Built with ❤️ for DevOps demonstration**
