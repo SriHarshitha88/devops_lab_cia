@@ -2,13 +2,13 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION = 'us-east-1'
-        ECR_REGISTRY = credentials('aws-ecr-registry-url')
+        AWS_REGION = 'ap-south-1'
+        ECR_REGISTRY = '987626324970.dkr.ecr.ap-south-1.amazonaws.com'
         ECR_REPO_NAME = 'aws-cicd-webapp'
         IMAGE_TAG = "${BUILD_NUMBER}"
         AWS_CREDENTIALS_ID = 'aws-credentials'
         DOCKER_IMAGE_NAME = "${ECR_REGISTRY}/${ECR_REPO_NAME}:${IMAGE_TAG}"
-        DEPLOY_HOST = credentials('aws-ec2-host')
+        DEPLOY_HOST = 'ec2-15-206-159-55.ap-south-1.compute.amazonaws.com'
         DEPLOY_CREDENTIALS = credentials('aws-ssh-credentials')
     }
 
@@ -49,7 +49,7 @@ pipeline {
                 stage('Lint') {
                     steps {
                         sh 'npm install -g eslint'
-                        sh 'eslint . || true'  # Continue even if linting fails
+                        sh 'eslint . || true' // Continue even if linting fails
                     }
                 }
                 stage('Security Scan') {
