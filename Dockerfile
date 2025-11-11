@@ -24,13 +24,13 @@ FROM node:18-alpine AS production
 WORKDIR /app
 
 # Copy installed dependencies from builder
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 
 # Copy application code
-COPY --from=builder --chown=nextjs:nodejs /app .
+COPY --from=builder --chown=node:node /app .
 
-# Switch to non-root user
-USER nextjs
+# Switch to built-in non-root user provided by the image
+USER node
 
 # Expose port
 EXPOSE 3000
