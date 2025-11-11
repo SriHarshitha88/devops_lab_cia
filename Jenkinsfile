@@ -122,11 +122,12 @@
 
         stage('EC2 Preflight') {
             steps {
-                sshagent(credentials: ['aws-ssh-credentials']) {
+                withCredentials([sshUserPrivateKey(credentialsId: 'aws-ssh-credentials', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
                     sh '''
                         set -e
-                        echo "🧰 Checking tooling on EC2: ${DEPLOY_HOST}"
-                        ssh -o StrictHostKeyChecking=no ec2-user@${DEPLOY_HOST} "docker --version || echo 'Docker missing'; aws --version || echo 'AWS CLI missing'"
+                        : ${SSH_USER:=ec2-user}
+                        echo "🧰 Checking tooling on EC2: ${DEPLOY_HOST} (user: ${SSH_USER})"
+                        ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ${SSH_USER}@${DEPLOY_HOST} "docker --version || echo 'Docker missing'; aws --version || echo 'AWS CLI missing'"
                     '''
                 }
             }
@@ -134,11 +135,12 @@
 
         stage('Deploy to EC2') {
             steps {
-                sshagent(credentials: ['aws-ssh-credentials']) {
+                withCredentials([sshUserPrivateKey(credentialsId: 'aws-ssh-credentials', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
                     sh '''
                         set -e
-                        echo "🚀 Deploying to EC2: ${DEPLOY_HOST}"
-                        ssh -o StrictHostKeyChecking=no ec2-user@${DEPLOY_HOST} \
+                        : ${SSH_USER:=ec2-user}
+                        echo "🚀 Deploying to EC2: ${DEPLOY_HOST} (user: ${SSH_USER})"
+                        ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ${SSH_USER}@${DEPLOY_HOST} \
                           "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY} && \
                            docker pull ${ECR_REGISTRY}/${ECR_REPO_NAME}:${IMAGE_TAG} && \
                            docker stop cicd-app || true && \
